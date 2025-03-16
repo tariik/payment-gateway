@@ -2,6 +2,8 @@
 
 namespace App\Exception;
 
+use RuntimeException;
+
 /**
  * PaymentProcessingException
  * 
@@ -14,6 +16,6 @@ namespace App\Exception;
  * 
  * @package App\Exception
  */
-class PaymentProcessingException extends \RuntimeException
+class PaymentProcessingException extends RuntimeException
 {
 }

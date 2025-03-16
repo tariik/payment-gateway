@@ -10,6 +10,7 @@ use App\Service\PaymentService;
 use App\DTO\PaymentRequest;
 use App\Constants\UrlConstants;
 use Psr\Log\LoggerInterface;
+use function uniqid;
 
 /**
  * Payment Controller
@@ -51,7 +52,7 @@ class PaymentController extends AbstractController
         $currency = 'EUR';
         $amount = 78.25;
         $paymentMethod = 'ING_OPEN_BANKING';
-        $purchaseId = \uniqid('purchase_', true);
+        $purchaseId = uniqid('purchase_', true);
         $returnUrl = UrlConstants::buildPaymentReturnUrl($purchaseId);
 
         // Initialize payment request with required parameters
