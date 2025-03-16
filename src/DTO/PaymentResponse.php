@@ -29,20 +29,20 @@ class PaymentResponse
      * 
      * @var array
      */
-    private array $rawResponse;
+    private array $rawData;
 
     /**
      * Creates a new PaymentResponse instance
      * 
      * @param string $transactionId The unique transaction identifier
      * @param string $paymentUrl The URL for completing the payment
-     * @param array $rawResponse The complete response data from the payment gateway
+     * @param array $rawData The complete response data from the payment gateway
      */
-    public function __construct(string $transactionId, string $paymentUrl, array $rawResponse = [])
+    public function __construct(string $transactionId, string $paymentUrl, array $rawData = [])
     {
         $this->transactionId = $transactionId;
         $this->paymentUrl = $paymentUrl;
-        $this->rawResponse = $rawResponse;
+        $this->rawData = $rawData;
     }
 
     /**
@@ -72,6 +72,16 @@ class PaymentResponse
      */
     public function getRawResponse(): array
     {
-        return $this->rawResponse;
+        return $this->rawData;
+    }
+
+    /**
+     * Returns the raw response data from the payment gateway
+     * 
+     * @return array The complete response array
+     */
+    public function getRawData(): array
+    {
+        return $this->rawData;
     }
 }

@@ -7,9 +7,8 @@ namespace App\Gateway\PaymentMethods\ING;
 use App\DTO\PaymentResponse;
 use App\Exception\BankingGatewayException;
 use App\Gateway\PaymentConnector;
-use DateTime;
+use App\Service\Logger\PaymentLoggerService;
 use Exception;
-use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
@@ -25,9 +24,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  */
 class IngOpenBankingPaymentConnector implements PaymentConnector
 {
-    private const LOG_DATE_FORMAT = 'Y-m-d\TH:i:s.000P';
     private const TOKEN_PATH = '/oauth2/token';
-    private const PAYMENTS_PATH = '/payment-requests'; 
+    private const PAYMENTS_PATH = '/payment-requests';
 
     /**
      * Base URL of the ING Open Banking API
@@ -78,10 +76,10 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
     private ?string $accessToken = null;
     
     /**
-     * Logger instance
-     * @var LoggerInterface
+     * Payment logger service
+     * @var PaymentLoggerService
      */
-    private LoggerInterface $logger;
+    private PaymentLoggerService $paymentLogger;
     
     /**
      * HTTP client for API requests
@@ -106,6 +104,24 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
      * @var mixed
      */
     private mixed $keyPath;
+    
+    /**
+     * Payment request builder
+     * @var IngPaymentRequestBuilder
+     */
+    private IngPaymentRequestBuilder $requestBuilder;
+    
+    /**
+     * Payment sender
+     * @var IngPaymentSender
+     */
+    private IngPaymentSender $paymentSender;
+    
+    /**
+     * Response processor
+     * @var IngPaymentResponseProcessor
+     */
+    private IngPaymentResponseProcessor $responseProcessor;
 
     /**
      * Initialize the ING Open Banking payment connector
@@ -119,12 +135,12 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
      *                     - return_url: Redirect URL after payment
      *                     - cert_path: Path to SSL certificate
      *                     - key_path: Path to private key
-     * @param LoggerInterface $logger Logger for recording payment operations
+     * @param PaymentLoggerService $paymentLogger Logger service for payment operations
      * @param HttpClientInterface $httpClient HTTP client for API requests
      */
     public function __construct(
         array $params,
-        LoggerInterface $logger,
+        PaymentLoggerService $paymentLogger,
         HttpClientInterface $httpClient
     ) {
         
@@ -136,10 +152,15 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
         $this->returnUrl = $params['return_url'];
         $this->certPath = $params['cert_path'];
         $this->keyPath = $params['key_path'];
-        $this->logger = $logger;
+        $this->paymentLogger = $paymentLogger;
         $this->description = $params['description'];
         $this->httpClient = $httpClient;
         $this->transactionId = uniqid('TRX_', true);
+        
+        // Initialize the helper classes
+        $this->requestBuilder = new IngPaymentRequestBuilder();
+        $this->paymentSender = new IngPaymentSender($httpClient, $paymentLogger);
+        $this->responseProcessor = new IngPaymentResponseProcessor($paymentLogger);
     }
 
     /**
@@ -171,12 +192,12 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
      */
     private function logStartPayment(): void
     {
-        $this->logger->info("Starting ING Open Banking payment", [
-            'transaction_id' => $this->transactionId,
-            'amount' => $this->amount,
-            'currency' => $this->currency,
-            'merchant_id' => $this->merchantId
-        ]);
+        $this->paymentLogger->logStartPayment(
+            $this->transactionId, 
+            $this->amount, 
+            $this->currency, 
+            $this->merchantId
+        );
     }
 
     /**
@@ -197,7 +218,6 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
         $tokenUrl = $this->host . self::TOKEN_PATH;
 
         try {
-
             $sslOptions = [
                 $this->certPath,
                 $this->keyPath,
@@ -208,14 +228,14 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
                 'client_id' => $this->clientId
             ]);
 
-            $this->logToFile(
+            $this->paymentLogger->logToFile(
+                $this->transactionId,
                 'TOKEN_REQUEST',
                 $tokenUrl,
                 $requestBody,
                 'application/x-www-form-urlencoded',
                 $sslOptions
             );
-
 
             $response = $this->httpClient->request('POST', $tokenUrl, [
                 'headers' => [
@@ -229,55 +249,41 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
 
             $responseContent = $response->getContent();
 
-            $this->logToFile('TOKEN_RESPONSE', $tokenUrl, $responseContent, 'application/json');
+            $this->paymentLogger->logToFile(
+                $this->transactionId,
+                'TOKEN_RESPONSE',
+                $tokenUrl,
+                $responseContent,
+                'application/json'
+            );
 
             $data = json_decode($responseContent, true);
 
             if (empty($data['access_token'])) {
-                $this->handleTokenError('Missing access token in response', $data);
+                $this->paymentLogger->logTokenError($this->transactionId, 'Missing access token in response', $data);
                 throw new BankingGatewayException('Invalid token response');
             }
 
             $this->accessToken = $data['access_token'];
 
-            $this->logTokenSuccess($data);
+            $this->paymentLogger->logTokenSuccess($this->transactionId, $data);
         } catch (Exception $e) {
-            $this->logToFile('TOKEN_ERROR', $tokenUrl, $e->getMessage(), 'text/plain', [
-                'trace' => $e->getTraceAsString()
-            ]);
-            $this->handleTokenError($e->getMessage());
+            $this->paymentLogger->logToFile(
+                $this->transactionId,
+                'TOKEN_ERROR',
+                $tokenUrl,
+                $e->getMessage(),
+                'text/plain',
+                ['trace' => $e->getTraceAsString()]
+            );
+            
+            // Only log token error if it's not already a BankingGatewayException (which we've already logged)
+            if (!($e instanceof BankingGatewayException)) {
+                $this->paymentLogger->logTokenError($this->transactionId, $e->getMessage());
+            }
+            
             throw new BankingGatewayException("Token request failed: " . $e->getMessage(), 0, $e);
         }
-    }
-
-    /**
-     * Handles errors during token retrieval
-     *
-     * @param string $message Error message
-     * @param array $context Additional context data (optional)
-     * @return void
-     */
-    private function handleTokenError(string $message, array $context = []): void
-    {
-        $this->logger->error("ING Token Error: $message", [
-            'transaction_id' => $this->transactionId,
-            'context' => $this->maskSensitiveData($context)
-        ]);
-    }
-
-    /**
-     * Logs successful token retrieval
-     *
-     * @param array $data Token response data
-     * @return void
-     */
-    private function logTokenSuccess(array $data): void
-    {
-        $this->logger->debug("ING Token obtained", [
-            'transaction_id' => $this->transactionId,
-            'token_expires' => $data['expires_in'] ?? null,
-            'token_type' => $data['token_type'] ?? null
-        ]);
     }
 
     /**
@@ -295,117 +301,45 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
         $this->validateAccessToken();
 
         try {
-            $paymentData = $this->buildPaymentRequest();
-            $response = $this->sendPaymentRequest($paymentData);
-
-            return $this->processPaymentResponse($response);
+            // Use the extracted services to handle the payment flow
+            $paymentData = $this->requestBuilder->buildPaymentRequest(
+                $this->amount,
+                $this->currency,
+                $this->description,
+                $this->returnUrl
+            );
+            
+            $response = $this->paymentSender->sendPaymentRequest(
+                $paymentData,
+                $this->host,
+                $this->accessToken,
+                $this->certPath,
+                $this->keyPath,
+                $this->transactionId
+            );
+            
+            return $this->responseProcessor->processPaymentResponse(
+                $response,
+                $this->transactionId
+            );
+            
         } catch (Exception $e) {
-            $this->logToFile('PAYMENT_ERROR', $this->host . self::PAYMENTS_PATH, $e->getMessage(), 'text/plain', [
-                'trace' => $e->getTraceAsString()
-            ]);
-            $this->handlePaymentError($e->getMessage());
+            $this->paymentLogger->logToFile(
+                $this->transactionId,
+                'PAYMENT_ERROR',
+                $this->host . self::PAYMENTS_PATH,
+                $e->getMessage(),
+                'text/plain',
+                ['trace' => $e->getTraceAsString()]
+            );
+            
+            // Only log payment error if it's not already a BankingGatewayException (which we've already logged)
+            if (!($e instanceof BankingGatewayException)) {
+                $this->paymentLogger->logPaymentError($this->transactionId, $e->getMessage());
+            }
+            
             throw new BankingGatewayException("Payment failed: " . $e->getMessage(), 0, $e);
         }
-    }
-
-    /**
-     * Builds payment request data according to ING API specifications
-     *
-     * @throws BankingGatewayException If payment parameters are invalid
-     * @return array Payment request data
-     */
-    private function buildPaymentRequest(): array
-    {
-        $this->validatePaymentParameters();
-        $purchaseId = uniqid('purchase_', true);
-
-        return [
-            'fixedAmount' => [
-                'value' => $this->amount,
-                'currency' => $this->currency
-            ],
-            'validUntil' => (new DateTime('+1 day'))->format(self::LOG_DATE_FORMAT),
-            'maximumAllowedPayments' => 1,
-            'maximumReceivableAmount' => [
-                'value' => $this->amount,
-                'currency' => $this->currency
-            ],
-            'purchaseId' => $purchaseId,
-            'description' => $this->description,
-            'returnUrl' => $this->returnUrl
-        ];
-    }
-
-    /**
-     * Sends the payment request to the ING API
-     *
-     * @param array $paymentData Payment request data
-     * @throws TransportExceptionInterface If there's an HTTP transport error
-     * @throws ServerExceptionInterface If there's an HTTP server error
-     * @throws RedirectionExceptionInterface If there's an HTTP redirection error
-     * @throws ClientExceptionInterface If there's an HTTP client error
-     * @return array API response data
-     */
-    private function sendPaymentRequest(array $paymentData): array
-    {
-        $paymentUrl = $this->host . self::PAYMENTS_PATH;
-        $jsonBody = json_encode($paymentData);
-
-        $this->logToFile(
-            'PAYMENT_REQUEST',
-            $paymentUrl,
-            $jsonBody,
-            'application/json',
-            [
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'Authorization' => 'Bearer ' . '************',
-                ]
-            ]
-        );
-
-
-        $response = $this->httpClient->request('POST', $paymentUrl, [
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $this->accessToken,
-            ],
-            'body' => $jsonBody,
-            'local_cert' => $this->certPath,
-            'local_pk' => $this->keyPath,
-        ]);
-
-        $responseContent = $response->getContent();
-        $this->logToFile('PAYMENT_RESPONSE', $paymentUrl, $responseContent, 'application/json');
-
-        return json_decode($responseContent, true);
-    }
-
-    /**
-     * Processes the payment response from the ING API
-     *
-     * @param array $responseData API response data
-     * @throws BankingGatewayException If response is invalid
-     * @return PaymentResponse Processed payment response
-     */
-    private function processPaymentResponse(array $responseData): PaymentResponse
-    {
-        if (empty($responseData['id']) || empty($responseData['paymentInitiationUrl'])) {
-            $this->handlePaymentError('Invalid payment response structure', $responseData);
-            throw new BankingGatewayException('Invalid payment response from ING');
-        }
-
-        $this->logger->info("ING Payment successful", [
-            'transaction_id' => $this->transactionId,
-            'payment_id' => $responseData['id'],
-            'initiation_url' => $responseData['paymentInitiationUrl']
-        ]);
-
-        return new PaymentResponse(
-            $responseData['id'],
-            $responseData['paymentInitiationUrl'],
-            $responseData
-        );
     }
 
     /**
@@ -417,147 +351,8 @@ class IngOpenBankingPaymentConnector implements PaymentConnector
     private function validateAccessToken(): void
     {
         if (empty($this->accessToken)) {
-            $this->logger->critical("Missing access token for payment");
+            $this->paymentLogger->logCriticalError("Missing access token for payment");
             throw new BankingGatewayException("Authentication required");
-        }
-    }
-
-    /**
-     * Handles payment processing errors
-     *
-     * @param string $message Error message
-     * @param array $context Additional context data (optional)
-     * @return void
-     */
-    private function handlePaymentError(string $message, array $context = []): void
-    {
-        $this->logger->error("ING Payment Error: $message", [
-            'transaction_id' => $this->transactionId,
-            'context' => $this->maskSensitiveData($context)
-        ]);
-    }
-
-    /**
-     * Masks sensitive data for logging purposes
-     *
-     * @param array $data Data containing potentially sensitive information
-     * @return array Data with sensitive information masked
-     */
-    private function maskSensitiveData(array $data): array
-    {
-        $maskRules = [
-            'access_token' => fn($v) => substr($v, 0, 6) . '******',
-            'client_id' => fn($v) => substr($v, 0, 4) . '****',
-            'Authorization' => fn($v) => 'Bearer *****',
-            'Merchant-Id' => fn($v) => substr($v, 0, 4) . '****',
-            'api_key' => fn($v) => substr($v, 0, 4) . '****'
-        ];
-
-        array_walk($data, function (&$value, $key) use ($maskRules) {
-            if (is_array($value)) {
-                $value = $this->maskSensitiveData($value);
-            } elseif (isset($maskRules[$key])) {
-                $value = $maskRules[$key]($value);
-            }
-        });
-
-        return $data;
-    }
-
-    /**
-     * Logs API requests and responses to a file
-     *
-     * @param string $action Action identifier (e.g., TOKEN_REQUEST, PAYMENT_RESPONSE)
-     * @param string $url API endpoint URL
-     * @param string $rawData Raw request or response data
-     * @param string $contentType MIME content type of the data
-     * @param array $additionalData Additional context data (optional)
-     * @return void
-     */
-    private function logToFile(
-        string $action,
-        string $url,
-        string $rawData,
-        string $contentType,
-        array $additionalData = []
-    ): void {
-        try {
-            $logDir = __DIR__ . '/../../../../var/log/payments/ing/';
-            if (!is_dir($logDir)) {
-                mkdir($logDir, 0777, true);
-            }
-
-            $logFile = $logDir . 'payment_ing_' . date('Y-m-d') . '.log';
-
-            $processedData = $this->processRawData($rawData, $contentType);
-            $maskedData = array_merge($additionalData, [
-                'body' => $processedData
-            ]);
-
-            $logContent = sprintf(
-                "[%s] [%s] [TRX: %s]\nURL: %s\n%s\n\n",
-                date('Y-m-d H:i:s'),
-                $action,
-                $this->transactionId,
-                $url,
-                json_encode($maskedData, JSON_PRETTY_PRINT)
-            );
-
-            file_put_contents($logFile, $logContent, FILE_APPEND);
-        } catch (Exception $e) {
-            $this->logger->error("Failed to write log file: " . $e->getMessage());
-        }
-    }
-
-    /**
-     * Processes raw data based on content type
-     *
-     * @param string $rawData Raw data to process
-     * @param string $contentType MIME content type of the data
-     * @return array Processed data
-     */
-    private function processRawData(string $rawData, string $contentType): array
-    {
-        try {
-            $parsedData = match ($contentType) {
-                'application/json' => json_decode($rawData, true),
-                'application/x-www-form-urlencoded' => parse_str($rawData, $result) ? $result : [],
-                default => []
-            };
-
-            return $this->maskSensitiveData((array)$parsedData);
-        } catch (Exception $e) {
-            return ['error' => 'Failed to parse data: ' . $e->getMessage()];
-        }
-    }
-
-    /**
-     * Validates payment parameters before sending to the bank API
-     *
-     * @throws BankingGatewayException If any validation fails
-     * @return void
-     */
-    private function validatePaymentParameters(): void
-    {
-        // Validate amount
-        if (!is_numeric($this->amount) || $this->amount <= 0) {
-            throw new BankingGatewayException('Payment amount must be a positive number');
-        }
-
-        // Validate currency (ISO 4217 format)
-        if (!preg_match('/^[A-Z]{3}$/', $this->currency)) {
-            throw new BankingGatewayException('Invalid currency code format');
-        }
-
-        // Validate return URL
-        if (empty($this->returnUrl) || !filter_var($this->returnUrl, FILTER_VALIDATE_URL)) {
-            throw new BankingGatewayException('Invalid return URL');
-        }
-
-        // Validate URL scheme (must be HTTPS for security)
-        $urlParts = parse_url($this->returnUrl);
-        if (!isset($urlParts['scheme']) || strtolower($urlParts['scheme']) !== 'https') {
-            throw new BankingGatewayException('Return URL must use HTTPS protocol');
         }
     }
 }

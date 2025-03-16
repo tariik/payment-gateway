@@ -6,9 +6,9 @@ use App\DTO\PaymentRequest;
 use App\DTO\PaymentResponse;
 use App\Exception\BankingGatewayException;
 use App\Gateway\PaymentMethods\ING\IngOpenBankingPaymentConnector;
+use App\Service\Logger\PaymentLoggerService;
 use Exception;
 use InvalidArgumentException;
-use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
@@ -29,11 +29,11 @@ class BankingGatewayLauncher
     /**
      * Constructor
      * 
-     * @param LoggerInterface $logger Logger service for recording transaction events
+     * @param PaymentLoggerService $paymentLogger Specialized payment logging service
      * @param HttpClientInterface $httpClient HTTP client for API communications
      */
     public function __construct(
-        private readonly LoggerInterface $logger,
+        private readonly PaymentLoggerService $paymentLogger,
         private readonly HttpClientInterface $httpClient
     ) {}
 
@@ -98,7 +98,7 @@ class BankingGatewayLauncher
 
             return new IngOpenBankingPaymentConnector(
                 $params,
-                $this->logger,
+                $this->paymentLogger,
                 $this->httpClient
             );
         }
