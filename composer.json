@@ -6,6 +6,7 @@
     "require": {
         "php": ">=8.1",
         "ext-ctype": "*",
+        "ext-curl": "*",
         "ext-iconv": "*",
         "doctrine/doctrine-bundle": "^2.10",
         "doctrine/doctrine-migrations-bundle": "^3.2",
@@ -14,7 +15,9 @@
         "symfony/dotenv": "6.4.*",
         "symfony/flex": "^2",
         "symfony/framework-bundle": "6.4.*",
+        "symfony/http-client": "6.4.*",
         "symfony/runtime": "6.4.*",
+        "symfony/uid": "6.4.*",
         "symfony/yaml": "6.4.*"
     },
     "config": {

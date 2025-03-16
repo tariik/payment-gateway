@@ -26,6 +26,20 @@
             "migrations/.gitignore"
         ]
     },
+    "phpunit/phpunit": {
+        "version": "9.6",
+        "recipe": {
+            "repo": "github.com/symfony/recipes",
+            "branch": "main",
+            "version": "9.6",
+            "ref": "6a9341aa97d441627f8bd424ae85dc04c944f8b4"
+        },
+        "files": [
+            ".env.test",
+            "phpunit.xml.dist",
+            "tests/bootstrap.php"
+        ]
+    },
     "symfony/console": {
         "version": "6.4",
         "recipe": {
@@ -70,6 +84,21 @@
             "src/Kernel.php"
         ]
     },
+    "symfony/phpunit-bridge": {
+        "version": "7.2",
+        "recipe": {
+            "repo": "github.com/symfony/recipes",
+            "branch": "main",
+            "version": "6.3",
+            "ref": "a411a0480041243d97382cac7984f7dce7813c08"
+        },
+        "files": [
+            ".env.test",
+            "bin/phpunit",
+            "phpunit.xml.dist",
+            "tests/bootstrap.php"
+        ]
+    },
     "symfony/routing": {
         "version": "6.4",
         "recipe": {
@@ -81,6 +110,18 @@
         "files": [
             "config/packages/routing.yaml",
             "config/routes.yaml"
+        ]
+    },
+    "symfony/uid": {
+        "version": "6.4",
+        "recipe": {
+            "repo": "github.com/symfony/recipes",
+            "branch": "main",
+            "version": "6.2",
+            "ref": "d294ad4add3e15d7eb1bae0221588ca89b38e558"
+        },
+        "files": [
+            "config/packages/uid.yaml"
         ]
     }
 }
