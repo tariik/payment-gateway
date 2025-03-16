@@ -13,11 +13,6 @@ use App\Gateway\PaymentMethods\ING\IngPaymentSender;
 use App\Service\Logger\PaymentLoggerService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use ReflectionException;
-use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
@@ -90,12 +85,15 @@ class IngOpenBankingPaymentConnectorTest extends TestCase
         $reflectionClass = new ReflectionClass(IngOpenBankingPaymentConnector::class);
         
         $requestBuilderProperty = $reflectionClass->getProperty('requestBuilder');
+        $requestBuilderProperty->setAccessible(true);
         $requestBuilderProperty->setValue($connector, $this->requestBuilderMock);
         
         $paymentSenderProperty = $reflectionClass->getProperty('paymentSender');
+        $paymentSenderProperty->setAccessible(true);
         $paymentSenderProperty->setValue($connector, $this->paymentSenderMock);
         
         $responseProcessorProperty = $reflectionClass->getProperty('responseProcessor');
+        $responseProcessorProperty->setAccessible(true);
         $responseProcessorProperty->setValue($connector, $this->responseProcessorMock);
         
         // Set up behavior for the mocked services
@@ -123,15 +121,10 @@ class IngOpenBankingPaymentConnectorTest extends TestCase
             ->willReturn($expectedResponse);
             
         // Act
-        try {
-            $result = $connector->makePayment();
-            $this->assertSame($expectedResponse, $result);
-        } catch (BankingGatewayException|ClientExceptionInterface|RedirectionExceptionInterface|
-                ServerExceptionInterface|TransportExceptionInterface) {
-        }
+        $result = $connector->makePayment();
 
         // Assert
-
+        $this->assertSame($expectedResponse, $result);
     }
     
     /**
@@ -171,11 +164,7 @@ class IngOpenBankingPaymentConnectorTest extends TestCase
         );
         
         // Act
-        try {
-            $connector->makePayment();
-        } catch (BankingGatewayException|ClientExceptionInterface|
-                RedirectionExceptionInterface|ServerExceptionInterface|TransportExceptionInterface) {
-        }
+        $connector->makePayment();
     }
     
     /**
@@ -209,9 +198,11 @@ class IngOpenBankingPaymentConnectorTest extends TestCase
         $reflectionClass = new ReflectionClass(IngOpenBankingPaymentConnector::class);
         
         $requestBuilderProperty = $reflectionClass->getProperty('requestBuilder');
+        $requestBuilderProperty->setAccessible(true);
         $requestBuilderProperty->setValue($connector, $this->requestBuilderMock);
         
         $paymentSenderProperty = $reflectionClass->getProperty('paymentSender');
+        $paymentSenderProperty->setAccessible(true);
         $paymentSenderProperty->setValue($connector, $this->paymentSenderMock);
         
         // Make the request builder throw an exception
@@ -223,17 +214,11 @@ class IngOpenBankingPaymentConnectorTest extends TestCase
         $this->expectExceptionMessage('Payment failed: Invalid payment parameters');
         
         // Act
-        try {
-            $connector->makePayment();
-        } catch (
-            BankingGatewayException|RedirectionExceptionInterface|
-            ClientExceptionInterface|TransportExceptionInterface|ServerExceptionInterface) {
-        }
+        $connector->makePayment();
     }
 
     /**
      * @test
-     * @throws ReflectionException
      */
     public function validateAccessToken_WhenTokenIsMissing_ThrowsBankingGatewayException(): void
     {
@@ -247,9 +232,11 @@ class IngOpenBankingPaymentConnectorTest extends TestCase
         // Use reflection to access private method
         $reflectionClass = new ReflectionClass(IngOpenBankingPaymentConnector::class);
         $validateMethod = $reflectionClass->getMethod('validateAccessToken');
-
+        $validateMethod->setAccessible(true);
+        
         // Set access token to null
         $accessTokenProperty = $reflectionClass->getProperty('accessToken');
+        $accessTokenProperty->setAccessible(true);
         $accessTokenProperty->setValue($connector, null);
 
         $this->expectException(BankingGatewayException::class);

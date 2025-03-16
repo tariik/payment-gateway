@@ -1,10 +1,6 @@
 # Payment Gateway
 
-PHP Payment Gateway Integration System using Symfony 6.4 API with Docker
-
-This app offers secure, efficient payment processing via robust API integration with banks.
-
-The system supports multiple banking providers (currently featuring ING Open Banking integration).
+A flexible payment gateway integration system that supports multiple payment providers with a clean, extensible architecture.
 
 ## Requirements
 
@@ -25,32 +21,69 @@ The system supports multiple banking providers (currently featuring ING Open Ban
 
 ```
 payment-gateway/
-├── docker/                           # Docker configuration
-│   ├── docker-compose.yml            # Docker services definition
-│   ├── nginx/
-│   │   └── default.conf              # Nginx server configuration
-│   └── php/
-│       └── Dockerfile                # PHP container configuration
+├── config/
+│   └── certificates/            # SSL certificates for API authentication
+│       ├── example_client_tls.cer
+│       └── example_client_tls.key
 ├── src/
-│   ├── Controller/
-│   │   └── PaymentController.php     # Payment API endpoints
-│   ├── DTO/
-│   │   └── PaymentResponse.php       # Data transfer objects for payment responses
-│   ├── Exception/
-│   │   └── BankingGatewayException.php  # Gateway specific exceptions
-│   ├── Gateway/
-│   │   ├── BankingGatewayLauncher.php   # Gateway factory/launcher
-│   │   ├── PaymentGatewayInterface.php  # Gateway contract
-│   │   └── PaymentMethods/
-│   │       └── ING/
-│   │           └── IngOpenBankingPaymentConnector.php  # ING Open Banking integration
-├── tests/
-│   ├── Gateway/
-│   │   └── PaymentMethods/
-│   │       └── ING/
-│   │           └── IngOpenBankingPaymentConnectorTest.php  # Unit tests for ING connector
-└── .env                                                    # Environment configuration
+│   ├── DTO/                     # Data Transfer Objects
+│   │   ├── PaymentRequest.php
+│   │   └── PaymentResponse.php
+│   ├── Exception/               # Custom exception classes
+│   │   └── BankingGatewayException.php
+│   ├── Gateway/                 # Payment gateway implementation
+│   │   ├── BankingGatewayLauncher.php
+│   │   ├── PaymentConnector.php
+│   │   ├── PaymentMethodIDs.php
+│   │   └── PaymentMethods/      # Specific payment method implementations
+│   │       └── ING/             # ING Open Banking implementation
+│   │           ├── IngOpenBankingPaymentConnector.php
+│   │           ├── IngPaymentRequestBuilder.php
+│   │           ├── IngPaymentSender.php
+│   │           └── IngPaymentResponseProcessor.php
+│   └── Service/                 # Service classes
+│       └── Logger/              # Logging services
+│           └── PaymentLoggerService.php
+├── tests/                       # Test suite (mirrors src structure)
+│   └── Gateway/
+│       └── PaymentMethods/
+│           └── ING/
+│               ├── IngOpenBankingPaymentConnectorTest.php
+│               ├── IngPaymentRequestBuilderTest.php
+│               ├── IngPaymentSenderTest.php
+│               └── IngPaymentResponseProcessorTest.php
+└── var/                         # Runtime files
+    └── log/                     # Log files
+        └── payments/
+            └── ing/             # ING payment logs
 ```
+
+## Architecture
+
+The payment gateway system follows a modular, layered architecture:
+
+1. **Launcher Layer**: `BankingGatewayLauncher` serves as the entry point, handling payment requests and selecting the appropriate connector.
+
+2. **Connector Layer**: Connectors like `IngOpenBankingPaymentConnector` implement the `PaymentConnector` interface and orchestrate the payment flow for specific payment providers.
+
+3. **Processing Layer**: Each connector delegates to specialized components:
+   - `IngPaymentRequestBuilder`: Builds payment requests according to API specifications
+   - `IngPaymentSender`: Handles API communication with the payment provider
+   - `IngPaymentResponseProcessor`: Processes API responses into standardized `PaymentResponse` objects
+
+4. **Support Services**: 
+   - `PaymentLoggerService`: Provides specialized logging for payment transactions
+
+## Adding a New Payment Method
+
+To add a new payment method:
+
+1. Create a new folder under `src/Gateway/PaymentMethods/` for your provider
+2. Create implementation classes following the Single Responsibility Principle:
+   - A main connector class implementing `PaymentConnector`
+   - Helper classes for request building, API communication, and response processing
+3. Add the payment method ID to `PaymentMethodIDs.php`
+4. Update `BankingGatewayLauncher.php` to handle the new payment method
 
 ## Testing API with Command Line
 
