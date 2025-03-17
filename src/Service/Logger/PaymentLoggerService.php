@@ -74,7 +74,7 @@ class PaymentLoggerService
         array $additionalData = []
     ): void {
         try {
-            $logDir = __DIR__ . '/../../../../var/log/payments/ing/';
+            $logDir = __DIR__ . '/../../../var/log/payments/ing/';
             if (!is_dir($logDir)) {
                 mkdir($logDir, 0777, true);
             }
